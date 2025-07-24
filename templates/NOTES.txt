@@ -1,0 +1,4 @@
+OpenShift Grafana dashboard:
+{{ include "openshift-grafana.url" . }}
+
+The datasources may take several minutes to populate in the dashboard.

@@ -1,0 +1,17 @@
+{{/* vim: set ft=helm : */}}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "openshift-grafana.fullname" . }}-test-connection"
+  labels:
+    {{- include "openshift-grafana.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command: ['wget']
+      args: ['{{ include "openshift-grafana.fullname" . }}:3000']
+  restartPolicy: Never

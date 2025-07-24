@@ -1,0 +1,97 @@
+{{/* vim: set ft=helm : */}}
+---
+# Store OAuth configuration info for Grafana to reference
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: {{ include "openshift-grafana.fullname" . }}-oauth
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openshift-grafana.labels" . | nindent 4 }}
+data:
+  domain: {{ include "openshift-grafana.domain" . }}
+  url: {{ include "openshift-grafana.url" . }}
+
+---
+# Allow modifying only  the above ConfigMap
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "openshift-grafana.fullname" . }}-oauth
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openshift-grafana.labels" . | nindent 4 }}
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  resourceNames: [{{ include "openshift-grafana.fullname" . }}-oauth]
+  verbs: ["*"]
+---
+# Let our ServiceAccount modify the ConfigMap
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "openshift-grafana.fullname" . }}-oauth
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openshift-grafana.labels" . | nindent 4 }}
+subjects:
+- kind: ServiceAccount
+  name: {{ include "openshift-grafana.serviceAccountName" . }}
+roleRef:
+  kind: Role
+  name: {{ include "openshift-grafana.fullname" . }}-oauth
+  apiGroup: rbac.authorization.k8s.io
+---
+# Fetch well-known OAuth endpoint from OpenShift
+# and store keys/values in our ConfigMap
+# TODO: Find a less gross way to do this
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "openshift-grafana.fullname" . }}-oauth
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openshift-grafana.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install
+    "helm.sh/hook-weight": "-2"
+    "helm.sh/hook-delete-policy": before-hook-creation, hook-succeeded
+spec:
+  template:
+    metadata:
+      name: {{ .Release.Name }}
+      labels:
+        {{- include "openshift-grafana.labels" . | nindent 4 }}
+    spec:
+      serviceAccountName: {{ include "openshift-grafana.serviceAccountName" . }}
+      restartPolicy: Never
+      volumes:
+        - name: oauth
+          emptyDir: {}
+      initContainers:
+        # Compute JSON Merge Patch from endpoint
+        - name: oauth-fetch
+          image: docker.io/badouralix/curl-jq
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - "curl -k -v https://openshift.default.svc/.well-known/oauth-authorization-server | jq -c '.[] |= tostring | {data: .}' > /oauth/patch.yaml"
+          volumeMounts:
+            - name: oauth
+              mountPath: /oauth
+      containers:
+        # Apply computed patch to our ConfigMap
+        - name: oauth-config
+          image: docker.io/d3fk/kubectl:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - patch
+            - configmap
+            - {{ include "openshift-grafana.fullname" . }}-oauth
+            - --type=merge
+            - --patch-file=/oauth/patch.yaml
+          volumeMounts:
+            - name: oauth
+              mountPath: /oauth

@@ -1,0 +1,184 @@
+{{/* vim: set ft=helm : */}}
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/grafana.integreatly.org/grafana_v1beta1.json
+{{ $clientId := printf "system:serviceaccount:%s:%s"
+    .Release.Namespace
+    (include "openshift-grafana.serviceAccountName" .)
+-}}
+apiVersion: grafana.integreatly.org/v1beta1
+kind: Grafana
+metadata:
+  name: {{ include "openshift-grafana.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    dashboards: {{ include "openshift-grafana.name" . }}
+    folders: {{ include "openshift-grafana.name" . }}
+    {{- include "openshift-grafana.labels" . | nindent 4 }}
+spec:
+  version: {{ .Chart.AppVersion }}
+  serviceAccount:
+    metadata:
+      annotations:
+        serviceaccounts.openshift.io/oauth-redirectreference.primary: >-
+          {
+            "kind": "OAuthRedirectReference",
+            "apiVersion":"v1",
+            "reference": {
+              "kind": "Route",
+              "name": "{{ include "openshift-grafana.fullname" . }}-route"
+            }
+          }
+  route:
+    spec:
+      port:
+        targetPort: grafana
+      to:
+        kind: Service
+        name: {{ include "openshift-grafana.fullname" . }}-service
+        weight: 100
+      wildcardPolicy: None
+  deployment:
+    spec:
+      template:
+        spec:
+          serviceAccountName: {{ include "openshift-grafana.serviceAccountName" . }}
+          containers:
+            - name: grafana
+              env:
+                - name: GF_SECURITY_ADMIN_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "openshift-grafana.fullname" . }}-operator-credentials
+                      key: username
+                - name: GF_SECURITY_ADMIN_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "openshift-grafana.fullname" . }}-operator-credentials
+                      key: password
+                - name: OAUTH_CLIENT_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "openshift-grafana.fullname" . }}-client-secret
+                      key: token
+                - name: OAUTH_AUTH_ENDPOINT
+                  valueFrom:
+                    configMapKeyRef:
+                      name: {{ include "openshift-grafana.fullname" . }}-oauth
+                      key: authorization_endpoint
+                - name: OAUTH_TOKEN_ENDPOINT
+                  valueFrom:
+                    configMapKeyRef:
+                      name: {{ include "openshift-grafana.fullname" . }}-oauth
+                      key: token_endpoint
+                - name: OAUTH_URL
+                  valueFrom:
+                    configMapKeyRef:
+                      name: {{ include "openshift-grafana.fullname" . }}-oauth
+                      key: url
+                - name: CLUSTER_MONITORING_ALERTMANAGER_ADDRESS
+                  value: alertmanager-main.openshift-monitoring.svc:9094
+  client:
+    preferIngress: false
+  # Env vars in config get replaced with grafana env vars
+  config:
+    analytics:
+      check_for_updates: "false"
+      reporting_enabled: "false"
+    # Make the Grafana Operator user and admin of our Grafana
+    security:
+      admin_email: ${GF_SECURITY_ADMIN_USER}
+      cookie_secure: "true"
+    users:
+      hidden_users: grafana-operator
+    # Disable login/logout in grafana UI
+    auth:
+      disable_login_form: "true"
+      disable_signout_menu: "true"
+    # Use OpenShift's built-in OAuth
+    auth.generic_oauth:
+      name: OpenShift
+      enabled: "true"
+      icon: signin
+      auto_login: "true"
+      client_id: {{ $clientId }}
+      client_secret: ${OAUTH_CLIENT_SECRET}
+      scopes: >-
+        user:info
+        user:check-access
+        user:list-projects
+      empty_scopes: "false"
+      auth_url: ${OAUTH_AUTH_ENDPOINT}
+      token_url: ${OAUTH_TOKEN_ENDPOINT}
+      api_url: https://kubernetes.default.svc/apis/user.openshift.io/v1/users/~
+      login_attribute_path: metadata.name
+      email_attribute_path: metadata.name
+      name_attribute_path: fullName
+      allow_sign_up: "true"
+      allow_assign_grafana_admin: "true"
+      # Make OpenShift admins grafana admins
+      role_attribute_path: >-
+        contains(groups[*], 'system:cluster-admins') && 'GrafanaAdmin' ||
+        contains(groups[*], 'cluster-admins') && 'GrafanaAdmin'  ||
+        contains(groups[*], 'dedicated-admins') && 'GrafanaAdmin' ||
+        'Viewer'
+      tls_skip_verify_insecure: "true"
+      oauth_allow_insecure_email_lookup: "true"
+      use_pkce: "true"
+      use_refresh_token: "true"
+    # Allow basic auth for Grafana Operator user
+    auth.basic:
+      enabled: "true"
+    # Require auth
+    auth.anonymous:
+      enabled: "false"
+    server:
+      root_url: ${OAUTH_URL}
+      enable_gzip: "true"
+    log:
+      mode: "console"
+    dataproxy:
+      logging: "true"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "openshift-grafana.fullname" . }}-auth-delegator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openshift-grafana.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "openshift-grafana.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+# Basic auth credentials for Grafana-Operator
+# because it doesn't do any other auth types
+kind: Secret
+apiVersion: v1
+type: kubernetes.io/basic-auth
+metadata:
+  name: {{ include "openshift-grafana.fullname" . }}-operator-credentials
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openshift-grafana.labels" . | nindent 4 }}
+data:
+  username: {{ b64enc "system:operator:grafana" | quote }}
+  password: {{ randAscii 32 | b64enc | quote }}
+---
+# Service account token to use as Grafana's OAuth client secret
+kind: Secret
+apiVersion: v1
+type: kubernetes.io/service-account-token
+metadata:
+  name: {{ include "openshift-grafana.fullname" . }}-client-secret
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    kubernetes.io/service-account.name: {{ include "openshift-grafana.serviceAccountName" . }}
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-5"
+  labels:
+    {{- include "openshift-grafana.labels" . | nindent 4 }}

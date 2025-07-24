@@ -1,0 +1,20 @@
+# vim: set ft=helm :
+apiVersion: v2
+name: openshift-grafana
+description: A Helm chart for deploying Grafana on OpenShift
+sources:
+  - https://github.com/Qlever-LLC/openshift-grafana
+icon: https://avatars.githubusercontent.com/u/64113614
+maintainers:
+  - name: awlayton
+    email: alex@qlever.io
+type: application
+keywords:
+  - openshift
+  - grafana
+  - monitoring
+  - oauth
+version: 1.0.0
+appVersion: "12.1.0"
+annotations:
+  artifacthub.io/category: "monitoring-logging"

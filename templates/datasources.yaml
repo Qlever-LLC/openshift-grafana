@@ -1,0 +1,72 @@
+{{/* vim: set ft=helm : */}}
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/grafana.integreatly.org/grafanadatasource_v1beta1.json
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDatasource
+metadata:
+  name: {{ include "openshift-grafana.fullname" . }}-prometheus
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openshift-grafana.labels" . | nindent 4 }}
+spec:
+  valuesFrom:
+    - targetPath: "secureJsonData.tlsCACert"
+      valueFrom:
+        configMapKeyRef:
+          key: service-ca.crt
+          name: openshift-service-ca.crt
+  datasource:
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: 5s
+      oauthPassThru: true
+      tlsSkipVerify: true
+      tlsAuthWithCACert: true
+    secureJsonData:
+      tlsCACert: ${service-ca.crt}
+    access: proxy
+    name: Prometheus metrics
+    type: prometheus
+    url: "https://thanos-querier.openshift-monitoring.svc.cluster.local:9091/"
+  instanceSelector:
+    matchLabels:
+      dashboards: {{ include "openshift-grafana.name" $ }}
+---
+{{ range tuple "audit" "infrastructure" "application" }}
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/grafana.integreatly.org/grafanadatasource_v1beta1.json
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDatasource
+metadata:
+  name: {{ include "openshift-grafana.fullname" $ }}-loki-{{ . }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "openshift-grafana.labels" $ | nindent 4 }}
+spec:
+  valuesFrom:
+    - targetPath: "secureJsonData.tlsCACert"
+      valueFrom:
+        configMapKeyRef:
+          key: service-ca.crt
+          name: openshift-service-ca.crt
+  datasource:
+    editable: false
+    jsonData:
+      timeInterval: 5s
+      oauthPassThru: true
+      tlsSkipVerify: true
+      tlsAuthWithCACert: true
+    secureJsonData:
+      tlsCACert: ${service-ca.crt}
+    access: proxy
+    name: Loki {{ . }} logs
+    type: loki
+    url: "https://lokistack-logging-gateway-http.openshift-logging.svc:8080/api/logs/v1/{{ . }}/"
+  instanceSelector:
+    matchLabels:
+      dashboards: {{ include "openshift-grafana.name" $ }}
+  plugins:
+    - name: grafana-clock-panel
+      version: 1.3.0
+---
+{{ end }}
