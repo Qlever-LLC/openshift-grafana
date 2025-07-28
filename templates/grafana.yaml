@@ -83,13 +83,14 @@ spec:
   config:
     analytics:
       check_for_updates: "false"
+      check_for_plugin_updates: "false"
       reporting_enabled: "false"
     # Make the Grafana Operator user and admin of our Grafana
     security:
       admin_email: ${GF_SECURITY_ADMIN_USER}
       cookie_secure: "true"
     users:
-      hidden_users: grafana-operator
+      hidden_users: ${GF_SECURITY_ADMIN_USER}
     # Disable login/logout in grafana UI
     auth:
       disable_login_form: "true"
@@ -106,6 +107,7 @@ spec:
         user:info
         user:check-access
         user:list-projects
+        role:cluster-monitoring-view:{{ .Release.Namespace }}
       empty_scopes: "false"
       auth_url: ${OAUTH_AUTH_ENDPOINT}
       token_url: ${OAUTH_TOKEN_ENDPOINT}
@@ -155,7 +157,23 @@ subjects:
     name: {{ include "openshift-grafana.serviceAccountName" . }}
     namespace: {{ .Release.Namespace }}
 ---
-# Basic auth credentials for Grafana-Operator
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "openshift-grafana.fullname" . }}-cluster-view
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openshift-grafana.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-monitoring-view
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "openshift-grafana.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+# Basic auth credentials for Grafana Operator
 # because it doesn't do any other auth types
 kind: Secret
 apiVersion: v1
@@ -166,7 +184,7 @@ metadata:
   labels:
     {{- include "openshift-grafana.labels" . | nindent 4 }}
 data:
-  username: {{ b64enc "system:operator:grafana" | quote }}
+  username: {{ b64enc "grafana-operator" | quote }}
   password: {{ randAscii 32 | b64enc | quote }}
 ---
 # Service account token to use as Grafana's OAuth client secret

@@ -15,30 +15,42 @@ spec:
         configMapKeyRef:
           key: service-ca.crt
           name: openshift-service-ca.crt
+    - targetPath: "secureJsonData.httpHeaderValue1"
+      valueFrom:
+        secretKeyRef:
+          key: token
+          name: {{ include "openshift-grafana.fullname" . }}-client-secret
   datasource:
     isDefault: true
     editable: false
     jsonData:
       timeInterval: 5s
-      oauthPassThru: true
+      {{/*
+        FIXME: Figure out auth delagation for thanos querier
+      */}}
+      #oauthPassThru: true
       tlsSkipVerify: true
       tlsAuthWithCACert: true
+      httpHeaderName1: Authorization
     secureJsonData:
       tlsCACert: ${service-ca.crt}
+      httpHeaderValue1: "Bearer ${token}"
     access: proxy
     name: Prometheus metrics
     type: prometheus
-    url: "https://thanos-querier.openshift-monitoring.svc.cluster.local:9091/"
+    {{ with .Values.prometheus -}}
+    url: "https://{{ .name }}.{{ .namespace }}.svc.cluster.local:{{ .port }}/"
+    {{- end }}
   instanceSelector:
     matchLabels:
       dashboards: {{ include "openshift-grafana.name" $ }}
 ---
-{{ range tuple "audit" "infrastructure" "application" }}
+{{ range $tenant := tuple "audit" "infrastructure" "application" }}
 # yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/grafana.integreatly.org/grafanadatasource_v1beta1.json
 apiVersion: grafana.integreatly.org/v1beta1
 kind: GrafanaDatasource
 metadata:
-  name: {{ include "openshift-grafana.fullname" $ }}-loki-{{ . }}
+  name: {{ include "openshift-grafana.fullname" $ }}-loki-{{ $tenant }}
   namespace: {{ $.Release.Namespace }}
   labels:
     {{- include "openshift-grafana.labels" $ | nindent 4 }}
@@ -59,9 +71,11 @@ spec:
     secureJsonData:
       tlsCACert: ${service-ca.crt}
     access: proxy
-    name: Loki {{ . }} logs
+    name: Loki {{ $tenant }} logs
     type: loki
-    url: "https://lokistack-logging-gateway-http.openshift-logging.svc:8080/api/logs/v1/{{ . }}/"
+    {{ with $.Values.lokistack -}}
+    url: "https://{{ .name }}-gateway-http.{{ .namespace }}.svc.cluster.local:{{ .port }}/api/logs/v1/{{ $tenant }}/"
+    {{- end }}
   instanceSelector:
     matchLabels:
       dashboards: {{ include "openshift-grafana.name" $ }}
