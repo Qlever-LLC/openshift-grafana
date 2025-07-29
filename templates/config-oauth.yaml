@@ -62,7 +62,7 @@ spec:
     metadata:
       name: {{ .Release.Name }}
       labels:
-        {{- include "openshift-grafana.labels" . | nindent 4 }}
+        {{- include "openshift-grafana.labels" . | nindent 8 }}
     spec:
       serviceAccountName: {{ include "openshift-grafana.serviceAccountName" . }}
       restartPolicy: Never

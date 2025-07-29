@@ -59,7 +59,11 @@ Create the name of the service account to use
 {{- end }}
 
 {{- define "openshift-grafana.domain" -}}
-{{- default (dig "spec" "domain" "" (lookup "config.openshift.io/v1" "Ingress" "" "cluster")) .Values.domain }}
+{{- if .Values.domain | empty }}
+{{- lookup "config.openshift.io/v1" "Ingress" "" "cluster" | dig "spec" "domain" "" }}
+{{- else }}
+{{- .Values.domain }}
+{{- end }}
 {{- end }}
 
 {{- define "openshift-grafana.route" -}}
